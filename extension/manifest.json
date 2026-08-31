@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Claude in Tab",
+  "version": "0.1.0",
+  "description": "Call Claude in any Chrome tab to read the page and perform tasks (click, type, navigate).",
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "contextMenus"],
+  "host_permissions": ["<all_urls>"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Toggle Claude panel",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["sidepanel.html", "sidepanel.css", "sidepanel.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Toggle Claude panel"
+    }
+  }
+}
