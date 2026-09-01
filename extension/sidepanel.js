@@ -37,6 +37,14 @@ const model2El = document.getElementById("model2");  // composer pill
 const personaEl = document.getElementById("persona");
 const effortEl = document.getElementById("effort");
 const statusEl = document.getElementById("status");
+const themeEl = document.getElementById("theme");
+
+// ---- Theme (auto = match page, resolved by content.js and posted here) ----
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+}
+// Apply the initial theme from the iframe URL param (no flash of the wrong theme).
+try { applyTheme(new URLSearchParams(location.search).get("theme") || "light"); } catch (_) {}
 
 // ---- State ----
 let transcript = [];
@@ -67,7 +75,7 @@ const guardEl = document.getElementById("guard");
 document.getElementById("saveSettings").onclick = async () => {
   model2El.value = modelEl.value;
   guardEnabled = guardEl.checked;
-  await chrome.storage.local.set({ model: modelEl.value, persona: personaEl.value, effort: effortEl.value, guard: guardEl.checked });
+  await chrome.storage.local.set({ model: modelEl.value, persona: personaEl.value, effort: effortEl.value, guard: guardEl.checked, theme: themeEl.value });
   settingsPanel.classList.add("hidden");
 };
 model2El.addEventListener("change", () => {
@@ -75,9 +83,14 @@ model2El.addEventListener("change", () => {
   chrome.storage.local.set({ model: model2El.value });
 });
 effortEl.addEventListener("change", () => chrome.storage.local.set({ effort: effortEl.value }));
+themeEl.addEventListener("change", () => {
+  chrome.storage.local.set({ theme: themeEl.value }); // content.js re-resolves & posts back
+  if (themeEl.value !== "auto") applyTheme(themeEl.value); // instant feedback for light/dark
+});
 
 async function loadSettings() {
-  const { model, persona, effort, guard } = await chrome.storage.local.get(["model", "persona", "effort", "guard"]);
+  const { model, persona, effort, guard, theme } = await chrome.storage.local.get(["model", "persona", "effort", "guard", "theme"]);
+  themeEl.value = theme || "auto";
   if (model) { modelEl.value = model; model2El.value = model; }
   if (persona) personaEl.value = persona;
   if (effort) effortEl.value = effort;
@@ -520,6 +533,7 @@ window.addEventListener("message", (e) => {
   if (!d) return;
   if (d.cit === "selection" && d.text) attachContext(d.text);
   else if (d.cit === "pull_pending") pullPending();
+  else if (d.cit === "theme" && d.theme) applyTheme(d.theme);
 });
 
 // ---- Init ----

@@ -161,6 +161,39 @@
   let launchHost = null;
   let launcherDismissed = false;
 
+  // ---- Theme: match the page's light/dark unless overridden in settings ----
+  let themeSetting = "auto";     // auto | light | dark
+  let effectiveTheme = "light";
+
+  function parseColor(str) {
+    const m = str && str.match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    const p = m[1].split(",").map((s) => parseFloat(s));
+    if (p.length >= 4 && p[3] === 0) return null; // fully transparent
+    return { r: p[0], g: p[1], b: p[2] };
+  }
+  function detectPageTheme() {
+    let c = parseColor(getComputedStyle(document.body || document.documentElement).backgroundColor);
+    if (!c) c = parseColor(getComputedStyle(document.documentElement).backgroundColor);
+    if (!c) return (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+    const lum = (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;
+    return lum < 0.5 ? "dark" : "light";
+  }
+  function computeEffective() {
+    return themeSetting === "auto" ? detectPageTheme() : themeSetting;
+  }
+  function applyThemeAll() {
+    effectiveTheme = computeEffective();
+    if (launchHost && launchHost._wrap) launchHost._wrap.dataset.theme = effectiveTheme;
+    if (selHost && selHost._tb) selHost._tb.dataset.theme = effectiveTheme;
+    const frame = panelHost && panelHost.shadowRoot.querySelector(".cit-frame");
+    if (frame && frame.contentWindow) frame.contentWindow.postMessage({ cit: "theme", theme: effectiveTheme }, "*");
+  }
+  chrome.storage.local.get("theme", ({ theme }) => { themeSetting = theme || "auto"; applyThemeAll(); });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.theme) { themeSetting = changes.theme.newValue || "auto"; applyThemeAll(); }
+  });
+
   function buildLauncher() {
     if (launchHost) return;
     launchHost = document.createElement("div");
@@ -185,6 +218,9 @@
         .tip { position: absolute; right: 56px; top: 11px; background: #2b2b2b; color: #fff; font-size: 12px;
           padding: 5px 9px; border-radius: 8px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; }
         .wrap:hover .tip { opacity: 1; }
+        .wrap[data-theme="dark"] .fab { background: #2a2a2a; border-color: #4a4a4a; color: #ececec; }
+        .wrap[data-theme="dark"] .lclose { background: #ececec; color: #1e1e1e; }
+        .wrap[data-theme="dark"] .tip { background: #ececec; color: #1e1e1e; }
       </style>
       <div class="wrap" id="wrap">
         <div class="tip">Ask Claude · Ctrl+Shift+K</div>
@@ -195,6 +231,7 @@
     const wrap = sh.getElementById("wrap");
     const fab = sh.getElementById("fab");
     launchHost._wrap = wrap;
+    wrap.dataset.theme = effectiveTheme;
 
     // Restore a saved position (clamped to the current viewport).
     chrome.storage.local.get("fabPos", ({ fabPos }) => {
@@ -279,6 +316,7 @@
         resetToCorner(root); // always reappear at the bottom-right
         root.style.display = "flex";
         hideLauncher();
+        setTimeout(applyThemeAll, 0); // re-sync theme to the current page
       } else {
         root.style.display = "none";
         showLauncher();
@@ -299,6 +337,7 @@
       root.style.display = "flex";
     }
     hideLauncher();
+    setTimeout(applyThemeAll, 60); // re-sync theme to the current page
     // Nudge the panel to pull any pending quick-prompt (already-open case;
     // a freshly built panel pulls it itself on load).
     const frame = panelHost && panelHost.shadowRoot.querySelector(".cit-frame");
@@ -324,7 +363,7 @@
     // Isolate from the page's own styles.
     panelHost.style.all = "initial";
     const shadow = panelHost.attachShadow({ mode: "open" });
-    const frameUrl = chrome.runtime.getURL("sidepanel.html");
+    const frameUrl = chrome.runtime.getURL("sidepanel.html") + "?theme=" + computeEffective();
 
     shadow.innerHTML = `
       <style>
@@ -456,6 +495,11 @@
         .tb button:hover { background: #f2f2f2; }
         .tb .brand { font-size: 12px; padding: 0 4px 0 6px; color: #8a8a8a; }
         .tb .sep { width: 1px; align-self: stretch; background: #ececec; margin: 3px 2px; }
+        .tb[data-theme="dark"] { background: #262626; border-color: #4a4a4a; box-shadow: 0 6px 22px rgba(0,0,0,.55); }
+        .tb[data-theme="dark"] button { color: #ececec; }
+        .tb[data-theme="dark"] button:hover { background: #363636; }
+        .tb[data-theme="dark"] .brand { color: #9a9a9a; }
+        .tb[data-theme="dark"] .sep { background: #3a3a3a; }
       </style>
       <div class="tb" id="tb">
         <span class="brand">✳</span>
@@ -478,6 +522,7 @@
       if (s) s.removeAllRanges();
     });
     selHost._tb = tb;
+    tb.dataset.theme = effectiveTheme;
     return selHost;
   }
   function showSelToolbar() {
