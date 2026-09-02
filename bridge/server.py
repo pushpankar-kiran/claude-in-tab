@@ -134,9 +134,30 @@ async def _session_new(system, model, effort):
     return client
 
 
-async def _session_step(client, message):
-    await client.query(message)
+async def _session_step(client, message, images=None):
+    if images:
+        content = [{"type": "text", "text": message}]
+        for im in images:
+            content.append({"type": "image", "source": {
+                "type": "base64",
+                "media_type": im.get("media_type", "image/png"),
+                "data": im.get("data", ""),
+            }})
+
+        async def _gen():
+            yield {"type": "user", "message": {"role": "user", "content": content}}
+
+        await client.query(_gen())
+    else:
+        await client.query(message)
     return await _collect(client.receive_response())
+
+
+async def _session_interrupt(client):
+    try:
+        await client.interrupt()
+    except Exception:
+        pass
 
 
 async def _session_close(client):
@@ -243,8 +264,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not s:
                     self._json(410, {"error": "session expired"}); return
                 s["ts"] = time.time()
-                text = run_coro(_session_step(s["client"], data.get("message", "")))
+                text = run_coro(_session_step(s["client"], data.get("message", ""), data.get("images")))
                 self._json(200, {"text": text})
+
+            elif self.path.startswith("/session/interrupt"):
+                sid = data.get("sid")
+                with SLOCK:
+                    s = SESSIONS.get(sid)
+                if s:
+                    run_coro(_session_interrupt(s["client"]), timeout=15)
+                self._json(200, {"ok": True})
 
             elif self.path.startswith("/session/close"):
                 sid = data.get("sid")

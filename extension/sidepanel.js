@@ -51,9 +51,12 @@ let transcript = [];
 let renderLog = [];
 let currentId = null;
 let busy = false;
+let stopRequested = false;
+let currentAbort = null; // AbortController for the in-flight bridge request
 let connected = false;
 let saveTimer = null;
 let attachedContext = ""; // text selected on the page, attached as a chip
+let attachedImages = []; // {dataUrl, media_type, data} pasted/attached images
 let thinkingEl = null;
 
 // ---- Small SVGs ----
@@ -199,6 +202,27 @@ function _domToolResult(name, text) {
   row.appendChild(d); log.appendChild(row); scrollDown();
 }
 function addMsg(cls, text) { renderLog.push({ k: "msg", cls, text }); _domMsg(cls, text); updateEmptyState(); scheduleSave(); }
+// User message that may include image thumbnails. Base64 is NOT persisted to
+// history (would blow the storage quota) — a short note is saved instead.
+function _domUser(text, images) {
+  const row = document.createElement("div"); row.className = "row user";
+  const b = document.createElement("div"); b.className = "bubble";
+  if (images && images.length) {
+    const wrap = document.createElement("div"); wrap.className = "bubble-imgs";
+    images.forEach((im) => { const el = document.createElement("img"); el.src = im.dataUrl; wrap.appendChild(el); });
+    b.appendChild(wrap);
+  }
+  if (text) { const t = document.createElement("div"); t.textContent = text; b.appendChild(t); }
+  row.appendChild(b); log.appendChild(row); scrollDown();
+}
+function addUserMsg(text, images) {
+  _domUser(text, images);
+  const note = (images && images.length)
+    ? ((text ? text + "  " : "") + `🖼 ${images.length} image${images.length > 1 ? "s" : ""}`)
+    : text;
+  renderLog.push({ k: "msg", cls: "user", text: note });
+  updateEmptyState(); scheduleSave();
+}
 function addTool(name, inp) { renderLog.push({ k: "tool", name, inp }); _domTool(name, inp); scheduleSave(); }
 function addToolResult(name, text) { renderLog.push({ k: "tr", name, text }); _domToolResult(name, text); scheduleSave(); }
 
@@ -220,7 +244,28 @@ function showThinking(on) {
     log.appendChild(thinkingEl); scrollDown();
   } else if (!on && thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
 }
-function setBusy(b) { busy = b; sendBtn.disabled = b; showThinking(b); }
+const SEND_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>`;
+const STOP_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>`;
+function setBusy(b) {
+  busy = b;
+  showThinking(b);
+  sendBtn.disabled = false;            // keep clickable so it can act as Stop
+  sendBtn.title = b ? "Stop" : "Send";
+  sendBtn.innerHTML = b ? STOP_SVG : SEND_SVG;
+  sendBtn.classList.toggle("is-stop", b);
+}
+function stop() {
+  stopRequested = true;
+  if (currentAbort) { try { currentAbort.abort(); } catch (_) {} }
+  if (sid) { // ask the bridge to interrupt the model so the session stays reusable
+    fetch(BRIDGE_URL + "/session/interrupt", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid })
+    }).catch(() => {});
+  }
+  showThinking(false);
+  setBusy(false);
+  addMsg("assistant", "⏹ Stopped.");
+}
 
 // ---- History ----
 async function getSessions() { const { sessions } = await chrome.storage.local.get("sessions"); return sessions || []; }
@@ -301,36 +346,41 @@ function closeSession() {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid: old })
   }).catch(() => {});
 }
-function postStep(message) {
+function postStep(message, images) {
+  const body = { sid, message };
+  if (images && images.length) body.images = images;
+  currentAbort = new AbortController();
   return fetch(BRIDGE_URL + "/session/step", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid, message })
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: currentAbort.signal
   });
 }
 const CTX_PRIME = () => transcript.join("\n") + "\n\nReply with the next action as a single JSON object.";
-async function sessionStep(message) {
-  let res = await postStep(message);
+async function sessionStep(message, images) {
+  let res = await postStep(message, images);
   if (res.status === 410) { // expired — recreate and re-prime with full context
     sid = null; primed = false; await ensureSession();
-    res = await postStep(CTX_PRIME());
+    res = await postStep(CTX_PRIME(), images);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `step ${res.status}`);
   return data.text || "";
 }
 async function doResearch(text) {
+  stopRequested = false;
   setBusy(true);
   try {
     const model = model2El.value;
     const body = { prompt: text, model };
     if (model !== "haiku") body.effort = effortEl.value;
+    currentAbort = new AbortController();
     const res = await fetch(BRIDGE_URL + "/research", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: currentAbort.signal
     });
     const data = await res.json().catch(() => ({}));
     showThinking(false);
     if (!res.ok) addMsg("error", bridgeError(new Error(data.error || `research ${res.status}`)));
     else addMsg("assistant", data.text || "(no answer)");
-  } catch (e) { showThinking(false); addMsg("error", bridgeError(e)); }
+  } catch (e) { showThinking(false); if (!stopRequested) addMsg("error", bridgeError(e)); }
   finally { setBusy(false); saveNow(); }
 }
 function parseAction(text) {
@@ -389,7 +439,8 @@ function askApproval(text) {
   });
 }
 
-async function runLoop() {
+async function runLoop(images) {
+  stopRequested = false;
   setBusy(true);
   try {
     await ensureSession();
@@ -398,9 +449,11 @@ async function runLoop() {
       ? CTX_PRIME()
       : transcript[transcript.length - 1] + "\n\nReply with the next action as a single JSON object.";
     for (let step = 0; step < MAX_STEPS; step++) {
+      if (stopRequested) break;
       let text;
-      try { text = await sessionStep(message); primed = true; }
-      catch (e) { showThinking(false); addMsg("error", bridgeError(e)); break; }
+      try { text = await sessionStep(message, step === 0 ? images : null); primed = true; }
+      catch (e) { showThinking(false); if (!stopRequested) addMsg("error", bridgeError(e)); break; }
+      if (stopRequested) break;
       let action;
       try { action = parseAction(text); }
       catch { showThinking(false); addMsg("error", "Couldn't read Claude's action. Raw reply:\n" + text); break; }
@@ -441,28 +494,32 @@ function bridgeError(e) {
 }
 
 // ---- Send ----
-async function sendText(text, display) {
-  if (!text || busy) return;
+async function sendText(text, display, images) {
+  const hasImg = images && images.length;
+  if ((!text && !hasImg) || busy) return;
   await checkHealth();
-  if (!connected) { addMsg("user", display || text); addMsg("error", "⚠ Bridge offline. Start bridge/run-bridge.bat and check the header dot is ●."); return; }
-  addMsg("user", display || text);
+  if (!connected) { addUserMsg(display, images); addMsg("error", "⚠ Bridge offline. Start bridge/run-bridge.bat and check the header dot is ●."); return; }
+  addUserMsg(display, images);
   transcript.push("USER: " + text);
-  if (researchMode) { setBusy(true); doResearch(text); return; }
-  runLoop();
+  if (researchMode && !hasImg) { setBusy(true); doResearch(text); return; }
+  runLoop(images);
 }
 function autoGrow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; }
 function send() {
   const typed = input.value.trim();
-  if (!typed && !attachedContext) return;
+  const images = attachedImages.slice();
+  if (!typed && !attachedContext && !images.length) return;
   let modelMsg = typed, display = typed;
   if (attachedContext) {
     modelMsg = `Regarding this text I selected on the page:\n"""\n${attachedContext}\n"""\n\n${typed || "Please help with this."}`;
     display = typed || "About the selected text";
   }
+  if (!modelMsg && images.length) modelMsg = "Please look at the attached image(s) and help.";
   input.value = ""; autoGrow(); clearContext();
-  sendText(modelMsg, display);
+  attachedImages = []; renderImgChips();
+  sendText(modelMsg, display, images);
 }
-sendBtn.onclick = send;
+sendBtn.onclick = () => (busy ? stop() : send());
 input.addEventListener("input", autoGrow);
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
 
@@ -515,6 +572,51 @@ function attachContext(text) {
   input.focus();
 }
 function clearContext() { attachedContext = ""; renderCtx(); }
+
+// ---- Image attachments (paste or attach button) ----
+const imgChipsEl = document.getElementById("imgChips");
+const MAX_IMAGES = 5;
+function renderImgChips() {
+  imgChipsEl.innerHTML = "";
+  if (!attachedImages.length) { imgChipsEl.classList.add("hidden"); return; }
+  attachedImages.forEach((im, i) => {
+    const chip = document.createElement("div"); chip.className = "img-chip";
+    const img = document.createElement("img"); img.src = im.dataUrl; chip.appendChild(img);
+    const x = document.createElement("button"); x.className = "img-x"; x.title = "Remove"; x.textContent = "✕";
+    x.onclick = () => { attachedImages.splice(i, 1); renderImgChips(); };
+    chip.appendChild(x);
+    imgChipsEl.appendChild(chip);
+  });
+  imgChipsEl.classList.remove("hidden");
+}
+function addImageFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  if (attachedImages.length >= MAX_IMAGES) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result);
+    const semi = dataUrl.indexOf(";"), comma = dataUrl.indexOf(",");
+    const media_type = dataUrl.slice(5, semi) || file.type || "image/png";
+    attachedImages.push({ dataUrl, media_type, data: dataUrl.slice(comma + 1) });
+    renderImgChips();
+  };
+  reader.readAsDataURL(file);
+}
+input.addEventListener("paste", (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  let handled = false;
+  for (const it of items) {
+    if (it.type && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) { addImageFile(f); handled = true; } }
+  }
+  if (handled) e.preventDefault();
+});
+const fileInput = document.getElementById("fileInput");
+document.getElementById("attachBtn").onclick = () => fileInput.click();
+fileInput.addEventListener("change", () => {
+  for (const f of fileInput.files) addImageFile(f);
+  fileInput.value = "";
+});
 
 // ---- Context-menu / selection-toolbar handoff ----
 function pullPending() {

@@ -199,6 +199,19 @@ main#log { flex: 1 1 auto; overflow-y: auto; padding: 14px 12px; display: flex; 
 .ctx-chip .ctx-x { flex: 0 0 auto; background: none; border: none; color: var(--muted);
   cursor: pointer; font-size: 12px; padding: 0 2px; line-height: 1; }
 .ctx-chip .ctx-x:hover { color: var(--text); }
+
+/* Image attachments */
+.img-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 4px; }
+.img-chips.hidden { display: none; }
+.img-chip { position: relative; width: 52px; height: 52px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.img-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-chip .img-x { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,.6); color: #fff; font-size: 9px; cursor: pointer; line-height: 1;
+  padding: 0; display: flex; align-items: center; justify-content: center; }
+.pill.icon-pill { display: inline-flex; align-items: center; justify-content: center; padding: 4px 7px; }
+.pill.icon-pill svg { display: block; }
+.bubble-imgs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.bubble-imgs img { max-width: 170px; max-height: 170px; border-radius: 8px; display: block; }
 #input {
   border: none; outline: none; resize: none; width: 100%; background: transparent;
   color: var(--text); font-family: inherit; font-size: 13px; padding: 4px 6px;
