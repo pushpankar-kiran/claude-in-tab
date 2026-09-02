@@ -59,31 +59,17 @@
       <div id="welcome" class="welcome">
         <div class="welcome-logo">✳</div>
         <div class="welcome-title">How can I help on this page?</div>
-        <div class="welcome-sub">Ask anything, or try one of these:</div>
-        <div class="sugg">
-          <button class="sugg-card" data-action="summarize"><b>Summarize</b><span>the key ideas on this page</span></button>
-          <button class="sugg-card" data-action="keypoints"><b>Key points</b><span>as a quick bullet list</span></button>
-          <button class="sugg-card" data-action="explain"><b>Explain</b><span>what this page is about</span></button>
-          <button class="sugg-card" data-action="translate"><b>Translate</b><span>the content to English</span></button>
-        </div>
+        <div class="welcome-sub">Ask anything, select text to attach it, or paste an image or PDF.</div>
       </div>
     </main>
-
-    <div id="actions" class="actions hidden">
-      <button class="chip" data-action="summarize">Summarize</button>
-      <button class="chip" data-action="keypoints">Key points</button>
-      <button class="chip" data-action="explain">Explain</button>
-      <button class="chip" data-action="translate">Translate</button>
-      <button class="chip" data-action="tldr">TL;DR</button>
-    </div>
 
     <div class="composer">
       <div id="imgChips" class="img-chips hidden"></div>
       <div id="ctxChips" class="ctx-chips hidden"></div>
       <textarea id="input" rows="1" placeholder="Ask Claude to do something in this tab…  (paste an image to analyze)"></textarea>
-      <input id="fileInput" type="file" accept="image/*" multiple hidden />
+      <input id="fileInput" type="file" accept="image/*,application/pdf" multiple hidden />
       <div class="composer-bar">
-        <button id="attachBtn" class="pill icon-pill" title="Attach image">
+        <button id="attachBtn" class="pill icon-pill" title="Attach image or PDF">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.6 1.6 0 0 1-2.3-2.3l7.3-7.3"/></svg>
         </button>
         <button id="researchBtn" class="pill toggle" title="Web search mode">

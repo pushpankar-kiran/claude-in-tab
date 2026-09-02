@@ -138,9 +138,11 @@ async def _session_step(client, message, images=None):
     if images:
         content = [{"type": "text", "text": message}]
         for im in images:
-            content.append({"type": "image", "source": {
+            mt = im.get("media_type", "image/png")
+            block_type = "document" if mt == "application/pdf" else "image"
+            content.append({"type": block_type, "source": {
                 "type": "base64",
-                "media_type": im.get("media_type", "image/png"),
+                "media_type": mt,
                 "data": im.get("data", ""),
             }})
 

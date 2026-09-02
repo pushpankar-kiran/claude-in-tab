@@ -26,7 +26,6 @@ Rules:
 // ---- DOM ----
 const log = document.getElementById("log");
 const welcomeEl = document.getElementById("welcome");
-const actionsEl = document.getElementById("actions");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const settingsPanel = document.getElementById("settings");
@@ -56,7 +55,7 @@ let currentAbort = null; // AbortController for the in-flight bridge request
 let connected = false;
 let saveTimer = null;
 let attachedContext = ""; // text selected on the page, attached as a chip
-let attachedImages = []; // {dataUrl, media_type, data} pasted/attached images
+let attachedFiles = []; // images {kind:'image',dataUrl,media_type,data} + PDFs {kind:'pdf',name,media_type,data}
 let thinkingEl = null;
 
 // ---- Small SVGs ----
@@ -161,9 +160,7 @@ function renderMarkdown(src) {
 function scrollDown() { log.scrollTop = log.scrollHeight; }
 function clearLog() { [...log.children].forEach((c) => { if (c.id !== "welcome") c.remove(); }); }
 function updateEmptyState() {
-  const empty = renderLog.length === 0;
-  welcomeEl.classList.toggle("hidden", !empty);
-  actionsEl.classList.toggle("hidden", empty);
+  welcomeEl.classList.toggle("hidden", renderLog.length !== 0);
 }
 async function copyText(text, btn) {
   try { await navigator.clipboard.writeText(text); if (btn) { const h = btn.innerHTML; btn.textContent = "✓"; setTimeout(() => (btn.innerHTML = h), 1000); } } catch {}
@@ -204,22 +201,37 @@ function _domToolResult(name, text) {
 function addMsg(cls, text) { renderLog.push({ k: "msg", cls, text }); _domMsg(cls, text); updateEmptyState(); scheduleSave(); }
 // User message that may include image thumbnails. Base64 is NOT persisted to
 // history (would blow the storage quota) — a short note is saved instead.
-function _domUser(text, images) {
+function _domUser(text, files) {
   const row = document.createElement("div"); row.className = "row user";
   const b = document.createElement("div"); b.className = "bubble";
-  if (images && images.length) {
-    const wrap = document.createElement("div"); wrap.className = "bubble-imgs";
-    images.forEach((im) => { const el = document.createElement("img"); el.src = im.dataUrl; wrap.appendChild(el); });
-    b.appendChild(wrap);
+  if (files && files.length) {
+    const imgs = files.filter((f) => f.kind !== "pdf");
+    if (imgs.length) {
+      const wrap = document.createElement("div"); wrap.className = "bubble-imgs";
+      imgs.forEach((im) => { const el = document.createElement("img"); el.src = im.dataUrl; wrap.appendChild(el); });
+      b.appendChild(wrap);
+    }
+    files.filter((f) => f.kind === "pdf").forEach((f) => {
+      const d = document.createElement("div"); d.className = "bubble-doc";
+      d.innerHTML = `<span class="doc-ico">📄</span><span></span>`;
+      d.querySelector("span:last-child").textContent = f.name || "document.pdf";
+      b.appendChild(d);
+    });
   }
   if (text) { const t = document.createElement("div"); t.textContent = text; b.appendChild(t); }
   row.appendChild(b); log.appendChild(row); scrollDown();
 }
-function addUserMsg(text, images) {
-  _domUser(text, images);
-  const note = (images && images.length)
-    ? ((text ? text + "  " : "") + `🖼 ${images.length} image${images.length > 1 ? "s" : ""}`)
-    : text;
+function addUserMsg(text, files) {
+  _domUser(text, files);
+  let note = text || "";
+  if (files && files.length) {
+    const imgs = files.filter((f) => f.kind !== "pdf").length;
+    const pdfs = files.filter((f) => f.kind === "pdf");
+    const parts = [];
+    if (imgs) parts.push(`🖼 ${imgs} image${imgs > 1 ? "s" : ""}`);
+    pdfs.forEach((f) => parts.push(`📄 ${f.name || "document.pdf"}`));
+    note = (text ? text + "  " : "") + parts.join("  ");
+  }
   renderLog.push({ k: "msg", cls: "user", text: note });
   updateEmptyState(); scheduleSave();
 }
@@ -507,17 +519,20 @@ async function sendText(text, display, images) {
 function autoGrow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; }
 function send() {
   const typed = input.value.trim();
-  const images = attachedImages.slice();
-  if (!typed && !attachedContext && !images.length) return;
+  const files = attachedFiles.slice();
+  if (!typed && !attachedContext && !files.length) return;
   let modelMsg = typed, display = typed;
   if (attachedContext) {
     modelMsg = `Regarding this text I selected on the page:\n"""\n${attachedContext}\n"""\n\n${typed || "Please help with this."}`;
     display = typed || "About the selected text";
   }
-  if (!modelMsg && images.length) modelMsg = "Please look at the attached image(s) and help.";
+  if (!modelMsg && files.length) {
+    const hasPdf = files.some((f) => f.kind === "pdf");
+    modelMsg = hasPdf ? "Please read the attached file(s) and summarize the key points." : "Please look at the attached image(s) and help.";
+  }
   input.value = ""; autoGrow(); clearContext();
-  attachedImages = []; renderImgChips();
-  sendText(modelMsg, display, images);
+  attachedFiles = []; renderImgChips();
+  sendText(modelMsg, display, files);
 }
 sendBtn.onclick = () => (busy ? stop() : send());
 input.addEventListener("input", autoGrow);
@@ -531,26 +546,6 @@ researchBtn.onclick = () => {
   input.placeholder = researchMode ? "Search the web…" : "Ask Claude to do something in this tab…";
 };
 
-// ---- Quick actions (welcome cards + chips) ----
-const QUICK = {
-  summarize: (s) => s ? `Summarize the following:\n\n${s}` : "Summarize this page concisely.",
-  keypoints: (s) => s ? `List the key points of the following as bullets:\n\n${s}` : "List the key points of this page as bullet points.",
-  explain:   (s) => s ? `Explain the following clearly:\n\n${s}` : "Explain what this page is about and its main content.",
-  translate: (s) => s ? `Translate the following to English:\n\n${s}` : "Translate this page's main content to English.",
-  tldr:      (s) => s ? `Give a one-sentence TL;DR of the following:\n\n${s}` : "Give a one-paragraph TL;DR of this page."
-};
-const QUICK_LABEL = { summarize: "Summarize", keypoints: "Key points", explain: "Explain", translate: "Translate", tldr: "TL;DR" };
-function onActionClick(e) {
-  const btn = e.target.closest("[data-action]");
-  if (!btn || busy) return;
-  const build = QUICK[btn.dataset.action]; if (!build) return;
-  const sel = attachedContext || input.value.trim();
-  const display = sel ? `${QUICK_LABEL[btn.dataset.action]} the selected text` : build("");
-  input.value = ""; autoGrow(); clearContext();
-  sendText(build(sel), display);
-}
-actionsEl.addEventListener("click", onActionClick);
-welcomeEl.addEventListener("click", onActionClick);
 
 // ---- Selected-text context chip (Merlin-style: attach, don't fill the box) ----
 const ctxChipsEl = document.getElementById("ctxChips");
@@ -560,8 +555,9 @@ function renderCtx() {
   const preview = attachedContext.replace(/\s+/g, " ").slice(0, 160);
   const chip = document.createElement("div");
   chip.className = "ctx-chip";
-  chip.innerHTML = `<span class="ctx-ico"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h11M4 17h16"/></svg></span><span class="ctx-text"></span><button class="ctx-x" title="Remove">✕</button>`;
+  chip.innerHTML = `<span class="ctx-ico"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h11M4 17h16"/></svg></span><span class="ctx-text"></span><button class="ctx-copy" title="Copy text">${COPY_SVG}</button><button class="ctx-x" title="Remove">✕</button>`;
   chip.querySelector(".ctx-text").textContent = preview;
+  chip.querySelector(".ctx-copy").onclick = (e) => copyText(attachedContext, e.currentTarget);
   chip.querySelector(".ctx-x").onclick = clearContext;
   ctxChipsEl.appendChild(chip);
   ctxChipsEl.classList.remove("hidden");
@@ -573,31 +569,48 @@ function attachContext(text) {
 }
 function clearContext() { attachedContext = ""; renderCtx(); }
 
-// ---- Image attachments (paste or attach button) ----
+// ---- File attachments: images (paste/attach) and PDFs (attach) ----
 const imgChipsEl = document.getElementById("imgChips");
-const MAX_IMAGES = 5;
+const MAX_FILES = 5;
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB safety cap
+const DOC_SVG = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/></svg>`;
 function renderImgChips() {
   imgChipsEl.innerHTML = "";
-  if (!attachedImages.length) { imgChipsEl.classList.add("hidden"); return; }
-  attachedImages.forEach((im, i) => {
-    const chip = document.createElement("div"); chip.className = "img-chip";
-    const img = document.createElement("img"); img.src = im.dataUrl; chip.appendChild(img);
-    const x = document.createElement("button"); x.className = "img-x"; x.title = "Remove"; x.textContent = "✕";
-    x.onclick = () => { attachedImages.splice(i, 1); renderImgChips(); };
-    chip.appendChild(x);
+  if (!attachedFiles.length) { imgChipsEl.classList.add("hidden"); return; }
+  attachedFiles.forEach((f, i) => {
+    const chip = document.createElement("div");
+    if (f.kind === "pdf") {
+      chip.className = "doc-chip";
+      chip.innerHTML = `<span class="doc-ico">${DOC_SVG}</span><span class="doc-name"></span><button class="doc-x" title="Remove">✕</button>`;
+      chip.querySelector(".doc-name").textContent = f.name || "document.pdf";
+      chip.querySelector(".doc-x").onclick = () => { attachedFiles.splice(i, 1); renderImgChips(); };
+    } else {
+      chip.className = "img-chip";
+      const img = document.createElement("img"); img.src = f.dataUrl; chip.appendChild(img);
+      const x = document.createElement("button"); x.className = "img-x"; x.title = "Remove"; x.textContent = "✕";
+      x.onclick = () => { attachedFiles.splice(i, 1); renderImgChips(); };
+      chip.appendChild(x);
+    }
     imgChipsEl.appendChild(chip);
   });
   imgChipsEl.classList.remove("hidden");
 }
-function addImageFile(file) {
-  if (!file || !file.type.startsWith("image/")) return;
-  if (attachedImages.length >= MAX_IMAGES) return;
+function addFile(file) {
+  if (!file) return;
+  const isImg = file.type.startsWith("image/");
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+  if (!isImg && !isPdf) return;
+  if (attachedFiles.length >= MAX_FILES) return;
+  if (file.size > MAX_FILE_BYTES) { addMsg("error", `"${file.name}" is too large (max 25 MB).`); return; }
   const reader = new FileReader();
   reader.onload = () => {
     const dataUrl = String(reader.result);
-    const semi = dataUrl.indexOf(";"), comma = dataUrl.indexOf(",");
-    const media_type = dataUrl.slice(5, semi) || file.type || "image/png";
-    attachedImages.push({ dataUrl, media_type, data: dataUrl.slice(comma + 1) });
+    const comma = dataUrl.indexOf(",");
+    const media_type = isPdf ? "application/pdf" : (dataUrl.slice(5, dataUrl.indexOf(";")) || file.type || "image/png");
+    const data = dataUrl.slice(comma + 1);
+    attachedFiles.push(isPdf
+      ? { kind: "pdf", name: file.name || "document.pdf", media_type, data }
+      : { kind: "image", dataUrl, media_type, data });
     renderImgChips();
   };
   reader.readAsDataURL(file);
@@ -607,14 +620,14 @@ input.addEventListener("paste", (e) => {
   if (!items) return;
   let handled = false;
   for (const it of items) {
-    if (it.type && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) { addImageFile(f); handled = true; } }
+    if (it.type && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) { addFile(f); handled = true; } }
   }
   if (handled) e.preventDefault();
 });
 const fileInput = document.getElementById("fileInput");
 document.getElementById("attachBtn").onclick = () => fileInput.click();
 fileInput.addEventListener("change", () => {
-  for (const f of fileInput.files) addImageFile(f);
+  for (const f of fileInput.files) addFile(f);
   fileInput.value = "";
 });
 

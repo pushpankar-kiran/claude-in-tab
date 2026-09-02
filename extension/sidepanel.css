@@ -89,16 +89,7 @@ main#log { flex: 1 1 auto; overflow-y: auto; padding: 14px 12px; display: flex; 
 .welcome.hidden { display: none; }
 .welcome-logo { font-size: 26px; opacity: .8; }
 .welcome-title { font-size: 16px; font-weight: 650; margin-top: 10px; }
-.welcome-sub { font-size: 12px; color: var(--muted); margin-top: 4px; margin-bottom: 14px; }
-.sugg { display: grid; gap: 8px; text-align: left; }
-.sugg-card {
-  display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
-  border: 1px solid var(--border); border-radius: 12px; background: var(--bg);
-  cursor: pointer; box-shadow: var(--shadow); color: var(--text); font: inherit;
-}
-.sugg-card:hover { background: var(--panel); border-color: var(--border2); }
-.sugg-card b { font-size: 12.5px; font-weight: 650; }
-.sugg-card span { font-size: 11.5px; color: var(--muted); }
+.welcome-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
 /* Message rows */
 .row { display: flex; gap: 8px; align-items: flex-start; }
@@ -168,16 +159,6 @@ main#log { flex: 1 1 auto; overflow-y: auto; padding: 14px 12px; display: flex; 
 .typing span:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
 
-/* Quick-action chips */
-.actions { display: flex; gap: 6px; padding: 8px 12px 0; overflow-x: auto; flex: 0 0 auto; }
-.actions.hidden { display: none; }
-.actions::-webkit-scrollbar { height: 0; }
-.chip {
-  flex: 0 0 auto; padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px;
-  background: var(--bg); color: var(--text); font-size: 11.5px; cursor: pointer; white-space: nowrap;
-}
-.chip:hover { background: var(--panel); }
-
 /* Composer */
 .composer {
   margin: 10px 12px 12px; border: 1px solid var(--border2); border-radius: 16px;
@@ -199,6 +180,9 @@ main#log { flex: 1 1 auto; overflow-y: auto; padding: 14px 12px; display: flex; 
 .ctx-chip .ctx-x { flex: 0 0 auto; background: none; border: none; color: var(--muted);
   cursor: pointer; font-size: 12px; padding: 0 2px; line-height: 1; }
 .ctx-chip .ctx-x:hover { color: var(--text); }
+.ctx-chip .ctx-copy { flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 2px; display: flex; align-items: center; }
+.ctx-chip .ctx-copy:hover { color: var(--text); }
+.ctx-chip .ctx-copy svg { display: block; }
 
 /* Image attachments */
 .img-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 4px; }
@@ -212,6 +196,15 @@ main#log { flex: 1 1 auto; overflow-y: auto; padding: 14px 12px; display: flex; 
 .pill.icon-pill svg { display: block; }
 .bubble-imgs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
 .bubble-imgs img { max-width: 170px; max-height: 170px; border-radius: 8px; display: block; }
+/* PDF (document) chips */
+.doc-chip { display: flex; align-items: center; gap: 6px; max-width: 220px; padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.doc-chip .doc-ico { flex: 0 0 auto; color: var(--muted); display: flex; }
+.doc-chip .doc-name { flex: 1 1 auto; min-width: 0; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-chip .doc-x { flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; }
+.doc-chip .doc-x:hover { color: var(--text); }
+.bubble-doc { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
+.bubble-doc .doc-ico { flex: 0 0 auto; }
 #input {
   border: none; outline: none; resize: none; width: 100%; background: transparent;
   color: var(--text); font-family: inherit; font-size: 13px; padding: 4px 6px;
